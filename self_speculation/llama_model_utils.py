@@ -213,7 +213,10 @@ def forward(
 def forward_early(
     model: transformers.LlamaForCausalLM,
     input_ids: torch.Tensor,
-    past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    # !!! modify from here
+    #past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    draft_past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    verify_past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
     exit_layer: int,
     exit_query_cache: Optional[List[torch.Tensor]],
 ) -> ForwardResult:
@@ -222,11 +225,17 @@ def forward_early(
 
     seq_length_with_past = seq_length
     past_key_values_length = 0
+    
+    # !!! modify, branch process
+    if draft_past_key_values is None:
+        draft_past_key_values = verify_past_key_values
 
-    if past_key_values is not None:
-        past_key_values_length = past_key_values[0][0].shape[2]
+    if draft_past_key_values is not None:
+        # !!! modify here
+        #past_key_values_length = past_key_values[0][0].shape[2]
+        past_key_values_length = draft_past_key_values[0][0].shape[2]
         seq_length_with_past = seq_length_with_past + past_key_values_length
-    past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(past_key_values)
+    draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(draft_past_key_values)
 
     position_ids = torch.arange(
         past_key_values_length,
@@ -260,7 +269,9 @@ def forward_early(
             padding_mask=None,
         )
 
-    past_key_values = past_key_values.to_legacy_cache()
+    # !!! modify here
+    #past_key_values = past_key_values.to_legacy_cache()
+    draft_past_key_values = draft_past_key_values.to_legacy_cache()
 
     # next_cache = next_decoder_cache
     if exit_query_cache is None:
@@ -280,7 +291,10 @@ def forward_early(
 def forward_remainder(
     model: transformers.LlamaForCausalLM,
     input_ids: torch.Tensor,
-    past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    # !!! modify here
+    # past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    draft_past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    verify_past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
     exit_layer: int,
     exit_query_cache: Optional[List[torch.Tensor]],
 ) -> ForwardResult:
@@ -290,22 +304,28 @@ def forward_remainder(
     seq_length_with_past = seq_length
     draft_past_key_values_length: int = 0
     full_past_key_values_length: int = 0
+    
+    # !!! modify, branch process
+    if draft_past_key_values is None:
+        draft_past_key_values = verify_past_key_values
 
-    if past_key_values is not None and past_key_values[0] is not None:
+    if draft_past_key_values is not None and draft_past_key_values[0] is not None:
         # it's okay to use the first layer because the draft model necessairly computes it
-        draft_past_key_values_length = past_key_values[0][0].shape[2]
+        draft_past_key_values_length = draft_past_key_values[0][0].shape[2]
         # the total sequence length is the past key values since that includes the draft tokens
 
         # the last layer should not have been skipped, we can get this to check how many of the tokens have gone through full
         # verification
-        if len(past_key_values) == len(model.model.layers):
-            full_past_key_values_length = past_key_values[-1][0].shape[2]
+        if verify_past_key_values is not None and len(verify_past_key_values) == len(model.model.layers):
+            full_past_key_values_length = verify_past_key_values[-1][0].shape[2]
         else:
             # we have not done a full pass yet so the history is 0
             full_past_key_values_length = 0
 
         seq_length_with_past = num_tokens_to_generate + draft_past_key_values_length
-    past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(past_key_values)
+    #past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(past_key_values)
+    draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(draft_past_key_values)
+    verify_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(verify_past_key_values)
 
     inputs_embeds = model.model.embed_tokens(input_ids)
 
@@ -343,19 +363,29 @@ def forward_remainder(
     for idx, decoder_layer in enumerate(model.model.layers):
         is_early_exit = idx < exit_layer
         past_key_value = (
-            past_key_values[idx]
-            if (past_key_values is not None and idx < len(past_key_values))
+            # !!! modify here
+            # past_key_values[idx]
+            # if (past_key_values is not None and idx < len(past_key_values))
+            # else None
+            draft_past_key_values[idx]
+            if (is_early_exit and draft_past_key_values is not None and idx < len(draft_past_key_values))
+            else verify_past_key_values[idx]
+            if (not is_early_exit and verify_past_key_values is not None and idx < len(verify_past_key_values))
             else None
         )
         if is_early_exit:
             # early hidden states: B x num_gen x C
             early_hidden_states = hidden_states[:, -num_tokens_to_generate:]
             early_position_ids = position_ids[:, -num_tokens_to_generate:]
-            hidden_states, past_key_values = decoder_layer(
+            # !!! modify here
+            #hidden_states, past_key_values = decoder_layer(
+            hidden_states, draft_past_key_values = decoder_layer(
                 early_hidden_states,
                 attention_mask=early_attention_mask,
                 position_ids=early_position_ids,
-                past_key_value=past_key_values,
+                # !!! modify here
+                #past_key_value=past_key_values,
+                past_key_value=past_key_value,
                 output_attentions=False,
                 use_cache=True,
                 padding_mask=None,
@@ -372,20 +402,30 @@ def forward_remainder(
             else:
                 # we already have seen the fully hidden states we can re-use them now
                 full_hidden_states = hidden_states
-            hidden_states, past_key_values = decoder_layer(
+            # !!! modify here
+            #hidden_states, past_key_values = decoder_layer(
+            hidden_states, verify_past_key_values = decoder_layer(
                 full_hidden_states,
                 attention_mask=full_attention_mask,
                 position_ids=position_ids,
-                past_key_value=past_key_values,
+                #past_key_value=past_key_values,
+                past_key_value=past_key_value,
                 output_attentions=False,
                 use_cache=True,
                 padding_mask=None,
             )
-
-    past_key_values = past_key_values.to_legacy_cache()
+    # !!! modify here
+    #past_key_values = past_key_values.to_legacy_cache()
+    verify_past_key_values = verify_past_key_values.to_legacy_cache()
     hidden_states = model.model.norm(hidden_states)
     logits = model.lm_head(hidden_states)
 
+    # !!! modify here
+    # return ForwardResult(
+    #     logits=logits, past_key_values=past_key_values, exit_query_cache=exit_query_cache
+    # )
     return ForwardResult(
-        logits=logits, past_key_values=past_key_values, exit_query_cache=exit_query_cache
+        logits=logits,
+        past_key_values=verify_past_key_values,
+        exit_query_cache=exit_query_cache,
     )
