@@ -121,30 +121,17 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         prompt_length: int = input_ids.size(1)
         draft_input_ids = input_ids.clone()
         draft_output_ids: List[int] = []
-        print(f"output_ids: {output_ids}")
-        print(f"draft_output_ids: {draft_output_ids}")
         if sample:
             draft_probabilities: List[torch.Tensor] = []
         exit_query_cache = None
         for _ in range(num_speculations):
-            # !!! modify
             draft_result = forward_early(
-                model=model,
-                input_ids=draft_input_ids,
-                draft_past_key_values=None,
-                verify_past_key_values=past_key_values,
-                exit_layer=exit_layer,
-                exit_query_cache=exit_query_cache,
+                model,
+                draft_input_ids,
+                past_key_values,
+                exit_layer,
+                exit_query_cache,
             )
-            # draft_result = forward_early(
-            #     model,
-            #     draft_input_ids,
-            #     past_key_values,
-            #     verify_past_key_values=past_key_values,
-            #     exit_layer,
-            #     exit_query_cache,
-            #     draft_past_key_values=None,
-            # )
             past_key_values = draft_result.past_key_values
             exit_query_cache = draft_result.exit_query_cache
             draft_logits = draft_result.logits
@@ -174,17 +161,12 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 streamer.put(draft_output_ids, is_draft=True)
 
         # logits: 1 x (T_d  + T_p) x V
-        print(f"prefill_token_ids.shape: {prefill_token_ids.shape}")
-        print(f"exit_layer: {exit_layer}")
-        print(f"past_key_values: {past_key_values}")
-        
         verify_results = forward_remainder(
-            model=model,
-            input_ids=prefill_token_ids.int(),
-            draft_past_key_values=None,
-            verify_past_key_values=past_key_values,
-            exit_layer=exit_layer,
-            exit_query_cache=exit_query_cache,
+            model,
+            prefill_token_ids.int(),
+            past_key_values,
+            exit_layer,
+            exit_query_cache,
         )
         logits = verify_results.logits
         if logits_processors:
@@ -245,7 +227,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
             number_of_matches,
             draft_output_ids.numel(),
         )
-
+        
 class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
     def generate_token_ids(
         self,
@@ -273,11 +255,10 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
             (
                 input_ids,
                 output_ids,
-                # !!! modify start here
+                # !!! modify here
                 #past_key_values,
                 draft_past_key_values,
                 verify_past_key_values,
-                # !!! modify end here
                 number_of_matches,
                 num_speculations,
             ) = self.single_step_speculation(
@@ -289,11 +270,10 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                     generation_config.num_speculations,
                     generation_config.max_steps - len(output_ids) - 1,
                 ),
-                # !!! modify start here
+                # !!! modify here
                 # past_key_values=past_key_values,
                 draft_past_key_values=draft_past_key_values,
                 verify_past_key_values=verify_past_key_values,
-                # !!! modify end here
                 exit_layer=generation_config.exit_layer,
                 eos_token_ids=eos_token_ids,
                 calls=calls,
@@ -335,12 +315,10 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         input_ids_list: List[int],
         output_ids: List[int],
         num_speculations: int,
-        # !!! modify start here
-        # past_key_values -> draft_past_key_values + verify_past_key_values
+        # !!! modify here
         # past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
         draft_past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]], 
         verify_past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]], 
-        # !!! modify end here
         eos_token_ids: List[int],
         calls: int,
         exit_layer: int,
@@ -358,20 +336,22 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         if sample:
             draft_probabilities: List[torch.Tensor] = []
         exit_query_cache = None
+        
+        # !!! draft stage
         for _ in range(num_speculations):
             draft_result = forward_early(
                 model,
                 draft_input_ids,
-                # !!! modify
-                #past_key_values,
+                # !!! modify here
+                # past_key_values,
                 draft_past_key_values,
                 exit_layer,
                 exit_query_cache,
             )
-            # !!! modify
-            # past_key_values = draft_result.past_key_values
+            # !!! modify here
+            #past_key_values = draft_result.past_key_values
             draft_past_key_values = draft_result.past_key_values
-            
+            # !!! acutally we don't need to update exit_query_cache here
             exit_query_cache = draft_result.exit_query_cache
             draft_logits = draft_result.logits
             if logits_processors:
@@ -388,7 +368,6 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
 
         # input_ids (1 x T_p) and draft_output_ids (1 x T_d) are concatenated together to make
         # 1 x (T_d  + T_p)
-        # !!! modify
         draft_output_ids = torch.tensor(draft_output_ids).unsqueeze(0).to(input_ids)
         prefill_token_ids = torch.cat(
             [input_ids, draft_output_ids],
@@ -401,31 +380,25 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                 streamer.put(draft_output_ids, is_draft=True)
 
         # logits: 1 x (T_d  + T_p) x V
-        # !!! modify start here
+        # !!! verify stage
         verify_results = forward_remainder(
-            model=model,
-            input_ids=prefill_token_ids.int(),
-            draft_past_key_values=draft_past_key_values,
-            verify_past_key_values=verify_past_key_values,
-            exit_layer=exit_layer,
-            exit_query_cache=exit_query_cache,
+            model = model,
+            input_ids = prefill_token_ids.int(),
+            # !!! modify here
+            # past_key_values = past_key_values,
+            past_key_values = verify_past_key_values,
+            # exit_layer,
+            exit_layer = 0,
+            exit_query_cache = None,
+            reuse_kv_cache = False,
+            helper_key_values = draft_past_key_values,
         )
-        # verify_results = forward_remainder(
-        #     model,
-        #     prefill_token_ids.int(),
-        #     #past_key_values,
-        #     verify_past_key_values,
-        #     exit_layer,
-        #     exit_query_cache,
-        # )
         logits = verify_results.logits
         if logits_processors:
             logits = logits_processors(prefill_token_ids, logits)
+        # !!! modify here
         # past_key_values = verify_results.past_key_values
         verify_past_key_values = verify_results.past_key_values
-        # !!! modify end here
-        
-        
         # only select the logits relevant to what the draft has outputted.
         # verification_logits: 1 x T_d x V
         verification_logits = logits[:, prompt_length - 1 :, :]
@@ -470,26 +443,21 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                 streamer.put(torch.LongTensor(output_ids[len(output_ids)-number_of_matches-1:]))
 
         # we want the entire output sequence + input sequence
-        # !!! modify start here
+        # !!! modify here
         # past_key_values = crop_past_key_values(
         #     past_key_values, len(input_ids_list) + len(output_ids) - 1
         # )
-        draft_past_key_values = crop_past_key_values(
-            draft_past_key_values, len(input_ids_list) + len(output_ids) - 1
-        )
         verify_past_key_values = crop_past_key_values(
             verify_past_key_values, len(input_ids_list) + len(output_ids) - 1
         )
-        # !!! modify end here
-        
+
         return (
             input_ids,
             output_ids,
-            # !!! modify start here
-            # past_key_values,
+            # !!! modify here
+            #past_key_values,
             draft_past_key_values,
             verify_past_key_values,
-            # !!! modify end here
             number_of_matches,
             draft_output_ids.numel(),
         )

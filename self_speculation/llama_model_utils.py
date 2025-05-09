@@ -283,6 +283,8 @@ def forward_remainder(
     past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
     exit_layer: int,
     exit_query_cache: Optional[List[torch.Tensor]],
+    reuse_kv_cache: bool = True,
+    helper_key_values:Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
 ) -> ForwardResult:
     device = input_ids.device
     batch_size, seq_length = input_ids.shape
@@ -290,8 +292,19 @@ def forward_remainder(
     seq_length_with_past = seq_length
     draft_past_key_values_length: int = 0
     full_past_key_values_length: int = 0
-
-    if past_key_values is not None and past_key_values[0] is not None:
+    
+    # !!! modify, add check
+    if past_key_values is None:
+        past_key_values = []
+    
+    # !!! modify, create branch
+    # if past_key_values is not None and past_key_values[0] is not None:
+    if not reuse_kv_cache:
+        draft_past_key_values_length = helper_key_values[0][0].shape[2]
+        full_past_key_values_length = 0
+        seq_length_with_past = seq_length
+    else:
+        # !!! origin branch
         # it's okay to use the first layer because the draft model necessairly computes it
         draft_past_key_values_length = past_key_values[0][0].shape[2]
         # the total sequence length is the past key values since that includes the draft tokens
@@ -304,7 +317,7 @@ def forward_remainder(
             # we have not done a full pass yet so the history is 0
             full_past_key_values_length = 0
 
-        seq_length_with_past = num_tokens_to_generate + draft_past_key_values_length
+    seq_length_with_past = num_tokens_to_generate + draft_past_key_values_length
     past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(past_key_values)
 
     inputs_embeds = model.model.embed_tokens(input_ids)
@@ -378,7 +391,7 @@ def forward_remainder(
                 position_ids=position_ids,
                 past_key_value=past_key_values,
                 output_attentions=False,
-                use_cache=True,
+                use_cache=reuse_kv_cache,
                 padding_mask=None,
             )
 
