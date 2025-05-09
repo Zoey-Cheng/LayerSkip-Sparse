@@ -321,7 +321,7 @@ def forward_remainder(
     else:
         draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(draft_past_key_values)
         
-    if verify_past_key_values is not None:
+    if verify_past_key_values is None or len(verify_past_key_values) == 0:
         verify_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(verify_past_key_values)
     
     # !!! modify here
