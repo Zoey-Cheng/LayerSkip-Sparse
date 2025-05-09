@@ -231,12 +231,11 @@ def forward_early(
     #     past_key_values = []
     # else:
     #     past_key_values = draft_past_key_values or verify_past_key_values
-    if draft_past_key_values is None and verify_past_key_values is None:
-        draft_past_key_values = transformers.cache_utils.DynamicCache()
+    if draft_past_key_values is None:
+        # share KV cache, direct cite, no extra space used
+        draft_past_key_values = verify_past_key_values
     else:
-        draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(
-            draft_past_key_values or verify_past_key_values
-        )
+        draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(draft_past_key_values)
 
     if draft_past_key_values is not None:
         # !!! modify here
@@ -317,30 +316,37 @@ def forward_remainder(
     # if draft_past_key_values is None:
     #     draft_past_key_values = verify_past_key_values
     if draft_past_key_values is None:
-        draft_past_key_values = transformers.cache_utils.DynamicCache()
+        draft_past_key_values = verify_past_key_values
     else:
         draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(draft_past_key_values)
+        
     if verify_past_key_values is not None:
         verify_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(verify_past_key_values)
-            
-    if draft_past_key_values is not None and draft_past_key_values[0] is not None:
-        # it's okay to use the first layer because the draft model necessairly computes it
+    
+    # !!! modify here
+    # if draft_past_key_values is not None and draft_past_key_values[0] is not None:
+    #     # it's okay to use the first layer because the draft model necessairly computes it
+    #     draft_past_key_values_length = draft_past_key_values[0][0].shape[2]
+    #     # the total sequence length is the past key values since that includes the draft tokens
+
+    #     # the last layer should not have been skipped, we can get this to check how many of the tokens have gone through full
+    #     # verification
+    #     if verify_past_key_values is not None and len(verify_past_key_values) == len(model.model.layers):
+    #         full_past_key_values_length = verify_past_key_values[-1][0].shape[2]
+    #     else:
+    #         # we have not done a full pass yet so the history is 0
+    #         full_past_key_values_length = 0
+    if draft_past_key_values is not None and len(draft_past_key_values) > 0:
         draft_past_key_values_length = draft_past_key_values[0][0].shape[2]
-        # the total sequence length is the past key values since that includes the draft tokens
 
-        # the last layer should not have been skipped, we can get this to check how many of the tokens have gone through full
-        # verification
-        if verify_past_key_values is not None and len(verify_past_key_values) == len(model.model.layers):
-            full_past_key_values_length = verify_past_key_values[-1][0].shape[2]
-        else:
-            # we have not done a full pass yet so the history is 0
-            full_past_key_values_length = 0
+    if verify_past_key_values is not None and len(verify_past_key_values) > 0:
+    #if verify_past_key_values is not None and len(verify_past_key_values) == len(model.model.layers):
+        full_past_key_values_length = verify_past_key_values[-1][0].shape[2]
 
-        seq_length_with_past = num_tokens_to_generate + draft_past_key_values_length
+    seq_length_with_past = num_tokens_to_generate + draft_past_key_values_length
+    
     #past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(past_key_values)
-    draft_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(draft_past_key_values)
-    verify_past_key_values = transformers.cache_utils.DynamicCache.from_legacy_cache(verify_past_key_values)
-
+    
     inputs_embeds = model.model.embed_tokens(input_ids)
 
     position_ids = torch.arange(
@@ -405,6 +411,7 @@ def forward_remainder(
                 padding_mask=None,
             )
         else:
+            # Full verification
             if full_hidden_states is None and exit_query_cache is not None:
                 # first time seeing the full hidden states, we need to rely on the
                 # query cache
