@@ -270,7 +270,8 @@ def forward_early(
             hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_value=past_key_values,
+            #past_key_value=past_key_values,
+            past_key_value=draft_past_key_values,
             output_attentions=False,
             use_cache=True,
             padding_mask=None,
@@ -405,7 +406,7 @@ def forward_remainder(
                 position_ids=early_position_ids,
                 # !!! modify here
                 #past_key_value=past_key_values,
-                past_key_value=past_key_value,
+                past_key_value=verify_past_key_values,
                 output_attentions=False,
                 use_cache=True,
                 padding_mask=None,

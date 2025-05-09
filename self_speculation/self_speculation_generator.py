@@ -173,11 +173,12 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
 
         # logits: 1 x (T_d  + T_p) x V
         verify_results = forward_remainder(
-            model,
-            prefill_token_ids.int(),
-            past_key_values,
-            exit_layer,
-            exit_query_cache,
+            model=model,
+            input_ids=prefill_token_ids.int(),
+            draft_past_key_values=None,
+            verify_past_key_value=past_key_values,
+            exit_layer=exit_layer,
+            exit_query_cache=exit_query_cache,
         )
         logits = verify_results.logits
         if logits_processors:
