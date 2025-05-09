@@ -227,8 +227,10 @@ def forward_early(
     past_key_values_length = 0
     
     # !!! modify, branch process
-    if draft_past_key_values is None:
-        draft_past_key_values = verify_past_key_values
+    if draft_past_key_values is None and verify_past_key_values is None:
+        past_key_values = []
+    else:
+        past_key_values = draft_past_key_values or verify_past_key_values
 
     if draft_past_key_values is not None:
         # !!! modify here
@@ -308,7 +310,7 @@ def forward_remainder(
     # !!! modify, branch process
     if draft_past_key_values is None:
         draft_past_key_values = verify_past_key_values
-
+        
     if draft_past_key_values is not None and draft_past_key_values[0] is not None:
         # it's okay to use the first layer because the draft model necessairly computes it
         draft_past_key_values_length = draft_past_key_values[0][0].shape[2]
