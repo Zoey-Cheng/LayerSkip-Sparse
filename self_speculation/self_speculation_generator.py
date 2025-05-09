@@ -176,7 +176,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
             model=model,
             input_ids=prefill_token_ids.int(),
             draft_past_key_values=None,
-            verify_past_key_value=past_key_values,
+            verify_past_key_values=past_key_values,
             exit_layer=exit_layer,
             exit_query_cache=exit_query_cache,
         )
