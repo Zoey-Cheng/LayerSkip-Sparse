@@ -356,6 +356,10 @@ def forward_remainder(
         dtype=torch.long,
         device=device,
     )
+    print(f"full_past_key_values_length: {full_past_key_values_length}")
+    print(f"seq_length_with_past: {seq_length_with_past}")
+    print(f"position_ids.shape before view: {position_ids.shape}")
+    print(f"seq_length: {seq_length}")
     position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
     attention_mask = input_ids.new_ones(
         (batch_size, seq_length_with_past),

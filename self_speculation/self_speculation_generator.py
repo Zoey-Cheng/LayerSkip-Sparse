@@ -172,6 +172,10 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 streamer.put(draft_output_ids, is_draft=True)
 
         # logits: 1 x (T_d  + T_p) x V
+        print(f"prefill_token_ids.shape: {prefill_token_ids.shape}")
+        print(f"exit_layer: {exit_layer}")
+        print(f"past_key_values: {past_key_values}")
+        
         verify_results = forward_remainder(
             model=model,
             input_ids=prefill_token_ids.int(),
