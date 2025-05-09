@@ -121,6 +121,8 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         prompt_length: int = input_ids.size(1)
         draft_input_ids = input_ids.clone()
         draft_output_ids: List[int] = []
+        print(f"output_ids: {output_ids}")
+        print(f"draft_output_ids: {draft_output_ids}")
         if sample:
             draft_probabilities: List[torch.Tensor] = []
         exit_query_cache = None
