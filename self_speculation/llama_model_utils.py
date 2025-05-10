@@ -293,16 +293,20 @@ def forward_remainder(
     draft_past_key_values_length: int = 0
     full_past_key_values_length: int = 0
     
-    # !!! modify, add check
-    if past_key_values is None:
-        past_key_values = []
+    print(f"[DEBUG][forward_early] past_key_values len before = {0 if past_key_values is None else past_key_values[0][0].shape[2]}")
     
     # !!! modify, create branch
     # if past_key_values is not None and past_key_values[0] is not None:
     if not reuse_kv_cache:
         draft_past_key_values_length = helper_key_values[0][0].shape[2]
-        full_past_key_values_length = 0
-        seq_length_with_past = seq_length
+        # if past_key_values is not None:
+        #     full_past_key_values_length = past_key_values[-1][0].shape[2]
+        # else:
+        #     full_past_key_values_length = 0
+        if past_key_values is not None:
+            full_past_key_values_length = past_key_values[-1][0].shape[2]
+        else:
+            full_past_key_values_length = 0
     else:
         # !!! origin branch
         # it's okay to use the first layer because the draft model necessairly computes it
@@ -322,17 +326,38 @@ def forward_remainder(
 
     inputs_embeds = model.model.embed_tokens(input_ids)
 
+    print("====== [Debug: forward_remainder] ======")
+    print(f"reuse_kv_cache: {reuse_kv_cache}")
+    print(f"input_ids.shape: {input_ids.shape}")
+    print(f"draft_past_key_values_length: {draft_past_key_values_length}")
+    print(f"full_past_key_values_length: {full_past_key_values_length}")
+    print(f"num_tokens_to_generate: {num_tokens_to_generate}")
+    print(f"seq_length_with_past: {seq_length_with_past}")
+    print(f"seq_length: {seq_length}")
+    print(f"expected position_ids length: {seq_length_with_past - full_past_key_values_length}")
+    print("========================================")
+
     position_ids = torch.arange(
         full_past_key_values_length,
         seq_length_with_past,
         dtype=torch.long,
         device=device,
     )
-    position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+    #position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+    position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+    
     attention_mask = input_ids.new_ones(
         (batch_size, seq_length_with_past),
         dtype=torch.bool,
     )
+    print("====== [Debug: attention mask construction] ======")
+    print(f"batch_size: {batch_size}")
+    print(f"input_ids.shape: {input_ids.shape}")
+    print(f"draft_past_key_values_length: {draft_past_key_values_length}")
+    print(f"full_past_key_values_length: {full_past_key_values_length}")
+    print(f"seq_length: {seq_length}")
+    print(f"attention_mask.shape: {attention_mask.shape}")
+    print("===========================================")
     early_attention_mask = _prepare_decoder_attention_mask(
         model,
         attention_mask,
@@ -344,10 +369,17 @@ def forward_remainder(
     full_attention_mask = _prepare_decoder_attention_mask(
         model,
         attention_mask,
+        # !!! modify
         (batch_size, seq_length),
+        #(batch_size, seq_length_with_past),
         inputs_embeds,
         full_past_key_values_length,  # we have no past for the full model
     )
+    print("====== [Debug: attention masks] ======")
+    print(f"attention_mask.shape: {attention_mask.shape}")
+    print(f"early_attention_mask.shape: {early_attention_mask.shape}")
+    print(f"full_attention_mask.shape: {full_attention_mask.shape}")
+    print("======================================")
 
     next_decoder_cache = []
     hidden_states = inputs_embeds
@@ -391,7 +423,7 @@ def forward_remainder(
                 position_ids=position_ids,
                 past_key_value=past_key_values,
                 output_attentions=False,
-                use_cache=reuse_kv_cache,
+                use_cache=True,
                 padding_mask=None,
             )
 

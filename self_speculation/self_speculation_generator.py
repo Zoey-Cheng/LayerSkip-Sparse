@@ -125,6 +125,13 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
             draft_probabilities: List[torch.Tensor] = []
         exit_query_cache = None
         for _ in range(num_speculations):
+            print(f"[DEBUG] ========== Draft Iteration {i} ==========")
+            if past_key_values is not None:
+                kv_len_before = past_key_values[0][0].shape[2]
+                print(f"[DEBUG] KV length BEFORE draft: {kv_len_before}")
+            else:
+                print(f"[DEBUG] KV length BEFORE draft: None (first token)")
+                
             draft_result = forward_early(
                 model,
                 draft_input_ids,
@@ -132,6 +139,11 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 exit_layer,
                 exit_query_cache,
             )
+            new_kv_len = draft_result.past_key_values[0][0].shape[2]
+            print(f"[DEBUG] KV length AFTER  draft: {new_kv_len}")
+            if past_key_values is not None:
+                print(f"[DEBUG] Expected increment: {kv_len_before + 1 == new_kv_len}")
+            
             past_key_values = draft_result.past_key_values
             exit_query_cache = draft_result.exit_query_cache
             draft_logits = draft_result.logits
@@ -174,6 +186,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         past_key_values = verify_results.past_key_values
         # only select the logits relevant to what the draft has outputted.
         # verification_logits: 1 x T_d x V
+        # !!! modify here
         verification_logits = logits[:, prompt_length - 1 :, :]
 
         # verified_tokens: 1 x (T_d)
@@ -196,12 +209,16 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                     number_of_matches += 1
                 else:
                     verified_tokens[0][number_of_matches] = torch.multinomial(max_fn((verified_probabilities[i, :] - draft_probabilities[i])), num_samples=1).item()
+                    print(f"[REJECT] token index {i} rejected, draft token id = {draft_output_ids[0, i]}, verified replaced it.")
                     break
 
         # accept the `number_of_matches` tokens from the draft with one more from the main model
         # since we re-use the same cachem the input id should only be the last accepted token TODO check this
+        # prompt for next round
         input_ids = verified_tokens[:, number_of_matches : number_of_matches + 1]
+        # add all pass token
         output_ids.extend(draft_output_ids[0, : number_of_matches].tolist())
+        # add a extra token
         output_ids.extend(verified_tokens[0][number_of_matches : number_of_matches + 1].tolist())
 
         if streamer:
@@ -214,7 +231,8 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
             else:
                 # streamer.put(torch.cat((draft_output_ids[0, : number_of_matches], verified_tokens[0][number_of_matches : number_of_matches + 1])))
                 streamer.put(torch.LongTensor(output_ids[len(output_ids)-number_of_matches-1:]))
-
+        print(f"[DEBUG] number_of_matches = {number_of_matches}, draft_output_ids.shape[1] = {draft_output_ids.shape[1]}")
+        print(f"[DEBUG] past_key_values length BEFORE trim: {past_key_values[0][0].shape[2]}")
         # we want the entire output sequence + input sequence
         past_key_values = crop_past_key_values(
             past_key_values, len(input_ids_list) + len(output_ids) - 1
@@ -339,6 +357,13 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         
         # !!! draft stage
         for _ in range(num_speculations):
+            print(f"[DEBUG] ========== Draft Iteration {i} ==========")
+            if draft_past_key_values is not None:
+                kv_len_before = draft_past_key_values[0][0].shape[2]
+                print(f"[DEBUG] KV length BEFORE draft: {kv_len_before}")
+            else:
+                print(f"[DEBUG] KV length BEFORE draft: None (first token)")
+            
             draft_result = forward_early(
                 model,
                 draft_input_ids,
@@ -348,6 +373,12 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                 exit_layer,
                 exit_query_cache,
             )
+            
+            new_kv_len = draft_result.past_key_values[0][0].shape[2]
+            print(f"[DEBUG] KV length AFTER  draft: {new_kv_len}")
+            if draft_past_key_values is not None:
+                print(f"[DEBUG] Expected increment: {kv_len_before + 1 == new_kv_len}")
+                
             # !!! modify here
             #past_key_values = draft_result.past_key_values
             draft_past_key_values = draft_result.past_key_values
@@ -410,6 +441,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
 
         # skip verification of the last token as it is a new token predicted from the main model
         verified_tokens = verified_tokens.to(prefill_token_ids)
+        # !!! modify
         verified = draft_output_ids[:, :] == verified_tokens[:, :-1]
 
         # number of matches is the index of the number of tokens we are accepting from the draft
@@ -423,6 +455,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                     number_of_matches += 1
                 else:
                     verified_tokens[0][number_of_matches] = torch.multinomial(max_fn((verified_probabilities[i, :] - draft_probabilities[i])), num_samples=1).item()
+                    print(f"[REJECT] token index {i} rejected, draft token id = {draft_output_ids[0, i]}, verified replaced it.")
                     break
 
         # accept the `number_of_matches` tokens from the draft with one more from the main model
@@ -450,6 +483,36 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         verify_past_key_values = crop_past_key_values(
             verify_past_key_values, len(input_ids_list) + len(output_ids) - 1
         )
+        # !!! modify, trim rejected cache
+        # draft_past_key_values = crop_past_key_values(
+        #     draft_past_key_values, len(input_ids_list) + len(output_ids) - 1
+        # )
+        all_pass = int(number_of_matches) == int(draft_output_ids.shape[1])
+        print(f"[DEBUG] number_of_matches = {number_of_matches}, draft_output_ids.shape[1] = {draft_output_ids.shape[1]}, all_pass = {all_pass}")
+        print(f"[DEBUG] draft_past_key_values length BEFORE trim: {draft_past_key_values[0][0].shape[2]}")
+
+        # have rejection
+        if not all_pass:
+            accepted_draft_len = len(input_ids_list) + number_of_matches
+            print(f"[DEBUG] Cropping draft_past_key_values to accepted_draft_len = {accepted_draft_len}")
+            draft_past_key_values = crop_past_key_values(
+                draft_past_key_values, accepted_draft_len
+            )
+
+            # 添加 full 模型生成的 Z 的 KV 到 draft_past_key_values
+            with torch.no_grad():
+                print("!!! additional KV cache for Z")
+                z_input = verified_tokens[:, number_of_matches : number_of_matches + 1]  # shape [1, 1]
+                print(f"!!! additional KV cache for Z, z_input shape = {z_input.shape}, token_id = {z_input.tolist()}")
+                z_result = forward_early(
+                    model=model,
+                    input_ids=z_input,
+                    past_key_values=draft_past_key_values,
+                    exit_layer=exit_layer,
+                    exit_query_cache=None,
+                )
+                draft_past_key_values = z_result.past_key_values
+                print(f"[DEBUG] draft_past_key_values length AFTER Z append: {draft_past_key_values[0][0].shape[2]}")
 
         return (
             input_ids,
