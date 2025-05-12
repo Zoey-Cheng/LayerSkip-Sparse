@@ -9,7 +9,7 @@ import pytest
 # ────────────────────────────────
 
 def prune_magnitude_4to2(module: torch.nn.Module) -> torch.Tensor:
-    """按幅值 4→2 结构化剪枝（行分组）"""
+    """ use 4:2 pruning """
     w = module.weight.detach()
     grouped = w.view(-1, 4)
     top2 = grouped.abs().topk(2, dim=-1).indices
@@ -19,11 +19,10 @@ def prune_magnitude_4to2(module: torch.nn.Module) -> torch.Tensor:
 
 def prune_nvidia_asp(module: torch.nn.Module) -> torch.Tensor:
     """
-    调用 NVIDIA ASP (适用于支持的 GPU)
-    如未安装 `nvidia/asp` 可不用注册此算法
+    called by NVIDIA's ASP library
     """
-    import asp  # 需要 pip install nvidia-asp
-    mask = asp.prune_magnitude(module.weight, N=4, M=2)  # 例如 4:2
+    import asp  # need pip install nvidia-asp
+    mask = asp.prune_magnitude(module.weight, N=4, M=2)  # ex: 4:2
     return mask.bool()
 
 # ────────────────────────────────
@@ -31,7 +30,7 @@ def prune_nvidia_asp(module: torch.nn.Module) -> torch.Tensor:
 # ────────────────────────────────
 ALGO_REGISTRY = {
     "oneshot_4to2": prune_magnitude_4to2,
-    "nvidia_asp": prune_nvidia_asp,          # 如不需要可注掉
+    "nvidia_asp": prune_nvidia_asp,          
 }
 
 # ────────────────────────────────

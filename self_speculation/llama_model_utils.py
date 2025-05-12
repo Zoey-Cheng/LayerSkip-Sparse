@@ -234,12 +234,6 @@ def forward_early(
         dtype=torch.long,
         device=device,
     )
-    
-    # print("====== !!! [Debug: forward_early] ======")
-    # print(f"position_ids.shape: {position_ids.shape}")
-    # print(f"position_ids: {position_ids}")
-    # print("===========================================")
-    
     position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
     attention_mask = input_ids.new_ones(
         (batch_size, seq_length_with_past),
@@ -253,12 +247,6 @@ def forward_early(
         inputs_embeds,
         past_key_values_length,
     )
-    # print("====== [Debug: attention mask construction] ======")
-    # print(f"batch_size: {batch_size}")
-    # print(f"input_ids.shape: {input_ids.shape}")
-    # print(f"seq_length: {seq_length}")
-    # print(f"attention_mask.shape: {attention_mask.shape}")
-    # print("===========================================")
 
     hidden_states = inputs_embeds
     # only run first exit_layer layers
@@ -306,17 +294,10 @@ def forward_remainder(
     draft_past_key_values_length: int = 0
     full_past_key_values_length: int = 0
     
-    # print(f"[DEBUG][forward_early] past_key_values len before = {0 if past_key_values is None else past_key_values[0][0].shape[2]}")
-    # print(f"[DEBUG][forward_early] draft_key_values len before = {0 if helper_key_values is None else helper_key_values[0][0].shape[2]}")
-    
     # !!! modify, create branch
     # if past_key_values is not None and past_key_values[0] is not None:
     if not reuse_kv_cache:
         draft_past_key_values_length = helper_key_values[0][0].shape[2]
-        # if past_key_values is not None:
-        #     full_past_key_values_length = past_key_values[-1][0].shape[2]
-        # else:
-        #     full_past_key_values_length = 0
         if past_key_values is not None:
             full_past_key_values_length = past_key_values[-1][0].shape[2]
         else:
@@ -341,17 +322,6 @@ def forward_remainder(
 
     inputs_embeds = model.model.embed_tokens(input_ids)
 
-    # print("====== [Debug: forward_remainder] ======")
-    # print(f"reuse_kv_cache: {reuse_kv_cache}")
-    # print(f"input_ids.shape: {input_ids.shape}")
-    # print(f"draft_past_key_values_length: {draft_past_key_values_length}")
-    # print(f"full_past_key_values_length: {full_past_key_values_length}")
-    # print(f"num_tokens_to_generate: {num_tokens_to_generate}")
-    # print(f"seq_length_with_past: {seq_length_with_past}")
-    # print(f"seq_length: {seq_length}")
-    # print(f"expected position_ids length: {seq_length_with_past - full_past_key_values_length}")
-    # print("========================================")
-
     # !!! modify, branch
     early_seq_with_past = draft_past_key_values_length + num_tokens_to_generate
     full_seq_with_past  = full_past_key_values_length  + seq_length
@@ -364,12 +334,8 @@ def forward_remainder(
         dtype=torch.long,
         device=device,
     )
-    #position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+    # position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
     position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-    # print("====== !!! [Debug: forward_remainer] ======")
-    # print(f"position_ids.shape: {position_ids.shape}")
-    # print(f"position_ids: {position_ids}")
-    # print("===========================================")
     
     attention_mask_full = input_ids.new_ones(
         # !!! modify
@@ -377,15 +343,6 @@ def forward_remainder(
         (batch_size, full_seq_with_past),
         dtype=torch.bool,
     )
-    # print("====== [Debug: attention mask construction] ======")
-    # print(f"batch_size: {batch_size}")
-    # print(f"input_ids.shape: {input_ids.shape}")
-    # print(f"draft_past_key_values_length: {draft_past_key_values_length}")
-    # print(f"full_past_key_values_length: {full_past_key_values_length}")
-    # print(f"seq_length: {seq_length}")
-    # print(f"attention_mask_full.shape: {attention_mask_full.shape}")
-    # print("===========================================")
-    # !!! modify, branch
     if reuse_kv_cache:
         attention_mask_early = attention_mask_full
     else:
@@ -408,11 +365,6 @@ def forward_remainder(
         inputs_embeds,
         full_past_key_values_length,  # we have no past for the full model
     )
-    # print("====== [Debug: attention masks] ======")
-    # print(f"attention_mask_full.shape: {attention_mask_full.shape}")
-    # print(f"early_attention_mask.shape: {early_attention_mask.shape}")
-    # print(f"full_attention_mask.shape: {full_attention_mask.shape}")
-    # print("======================================")
 
     next_decoder_cache = []
     hidden_states = inputs_embeds

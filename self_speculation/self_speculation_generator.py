@@ -129,14 +129,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
             draft_probabilities: List[torch.Tensor] = []
         exit_query_cache = None
 
-        for i in range(num_speculations):
-            # print(f"[DEBUG] ========== Draft Iteration {i} ==========")
-            # if past_key_values is not None:
-            #     kv_len_before = past_key_values[0][0].shape[2]
-            #     # print(f"[DEBUG] KV length BEFORE draft: {kv_len_before}")
-            # else:
-            #     # print(f"[DEBUG] KV length BEFORE draft: None (first token)")
-                
+        for i in range(num_speculations):        
             draft_result = forward_early(
                 model,
                 draft_input_ids,
@@ -145,9 +138,6 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 exit_query_cache,
             )
             new_kv_len = draft_result.past_key_values[0][0].shape[2]
-            # print(f"[DEBUG] KV length AFTER  draft: {new_kv_len}")
-            # if past_key_values is not None:
-            #     # print(f"[DEBUG] Expected increment: {kv_len_before + 1 == new_kv_len}")
             
             past_key_values = draft_result.past_key_values
             exit_query_cache = draft_result.exit_query_cache
@@ -174,7 +164,6 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
 
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
-                # print(colorama.Fore.LIGHTMAGENTA_EX, end="")
                 streamer.put(draft_output_ids, is_draft=True)
 
         # logits: 1 x (T_d  + T_p) x V
@@ -214,9 +203,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                     number_of_matches += 1
                 else:
                     verified_tokens[0][number_of_matches] = torch.multinomial(max_fn((verified_probabilities[i, :] - draft_probabilities[i])), num_samples=1).item()
-                    # print(f"[REJECT] token index {i} rejected, draft token id = {draft_output_ids[0, i]}, verified replaced it.")
                     break
-        # print(f"[DEBUG] number_of_matches = {number_of_matches}")
         # accept the `number_of_matches` tokens from the draft with one more from the main model
         # since we re-use the same cachem the input id should only be the last accepted token TODO check this
         # prompt for next round
@@ -229,21 +216,15 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
                 streamer.delete(len(draft_output_ids[0, :]))
-                # print(colorama.Fore.GREEN, end="")
                 streamer.put(draft_output_ids[0, : number_of_matches])
-                # print(colorama.Style.RESET_ALL, end="")
                 streamer.put(verified_tokens[0][number_of_matches : number_of_matches + 1])
             else:
                 # streamer.put(torch.cat((draft_output_ids[0, : number_of_matches], verified_tokens[0][number_of_matches : number_of_matches + 1])))
                 streamer.put(torch.LongTensor(output_ids[len(output_ids)-number_of_matches-1:]))
-        # print(f"[DEBUG] number_of_matches = {number_of_matches}, draft_output_ids.shape[1] = {draft_output_ids.shape[1]}")
-        # print(f"[DEBUG] past_key_values length BEFORE trim: {past_key_values[0][0].shape[2]}")
         # we want the entire output sequence + input sequence
-        
         past_key_values = crop_past_key_values(
             past_key_values, len(input_ids_list) + len(output_ids) - 1
         )
-        # print(f"[DEBUG] past_key_values length AFTER trim: {past_key_values[0][0].shape[2]}")
 
         return (
             input_ids,
@@ -276,12 +257,9 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         self.sparsity_manager = SparsityManager(model, algo)
         if os.path.exists(mask_path):
             self.sparsity_manager.masks = torch.load(mask_path)
-            print(f"[INFO] Re‑using sparse mask: {mask_path}")
         else:
-            print(f"[INFO] Building {algo} sparse mask …")
             self.sparsity_manager.build_masks()
             torch.save(self.sparsity_manager.masks, mask_path)
-            print(f"[INFO] Saved sparse mask to {mask_path}")
 
         return True
 
@@ -403,14 +381,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         else:
             kv_cache_length_before_draft = draft_past_key_values[0][0].shape[2] + 1
         
-        for i in range(num_speculations):
-            # print(f"[DEBUG] ========== Draft Iteration {i} ==========")
-            # if draft_past_key_values is not None:
-            #     kv_len_before = draft_past_key_values[0][0].shape[2]
-            #     print(f"[DEBUG] KV length BEFORE draft: {kv_len_before}")
-            # else:
-            #     print(f"[DEBUG] KV length BEFORE draft: None (first token)")
-            
+        for _ in range(num_speculations):        
             # !!! modify here - sparsity
             with (self.sparsity_manager.enable() if use_sparse else nullcontext()):
                 draft_result = forward_early(
@@ -424,9 +395,6 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                 )
             
             new_kv_len = draft_result.past_key_values[0][0].shape[2]
-            # print(f"[DEBUG] KV length AFTER  draft: {new_kv_len}")
-            # if draft_past_key_values is not None:
-            #     # print(f"[DEBUG] Expected increment: {kv_len_before + 1 == new_kv_len}")
                 
             # !!! modify here
             #past_key_values = draft_result.past_key_values
@@ -456,7 +424,6 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
 
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
-                # print(colorama.Fore.LIGHTMAGENTA_EX, end="")
                 streamer.put(draft_output_ids, is_draft=True)
 
         # logits: 1 x (T_d  + T_p) x V
@@ -504,9 +471,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                     number_of_matches += 1
                 else:
                     verified_tokens[0][number_of_matches] = torch.multinomial(max_fn((verified_probabilities[i, :] - draft_probabilities[i])), num_samples=1).item()
-                    # print(f"[REJECT] token index {i} rejected, draft token id = {draft_output_ids[0, i]}, verified replaced it.")
                     break
-        # print(f"[DEBUG] number_of_matches = {number_of_matches}")
         # accept the `number_of_matches` tokens from the draft with one more from the main model
         # since we re-use the same cachem the input id should only be the last accepted token TODO check this
         # prompt for next round
@@ -519,9 +484,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
                 streamer.delete(len(draft_output_ids[0, :]))
-                # print(colorama.Fore.GREEN, end="")
                 streamer.put(draft_output_ids[0, : number_of_matches])
-                # print(colorama.Style.RESET_ALL, end="")
                 streamer.put(verified_tokens[0][number_of_matches : number_of_matches + 1])
             else:
                 # streamer.put(torch.cat((draft_output_ids[0, : number_of_matches], verified_tokens[0][number_of_matches : number_of_matches + 1])))
@@ -532,55 +495,16 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         # past_key_values = crop_past_key_values(
         #     past_key_values, len(input_ids_list) + len(output_ids) - 1
         # )
-        # print(f"[DEBUG] verify_past_key_values length BEFORE trim: {verify_past_key_values[0][0].shape[2]}")
         verify_past_key_values = crop_past_key_values(
             verify_past_key_values, len(input_ids_list) + len(output_ids) - 1
         )
-        # print(f"[DEBUG] verify_past_key_values length AFTER trim: {verify_past_key_values[0][0].shape[2]}")
         # !!! modify, trim rejected cache
         # draft_past_key_values = crop_past_key_values(
         #     draft_past_key_values, len(input_ids_list) + len(output_ids) - 1
         # )
         all_pass = int(number_of_matches) == int(draft_output_ids.shape[1])
-        # print(f"[DEBUG] number_of_matches = {number_of_matches}, draft_output_ids.shape[1] = {draft_output_ids.shape[1]}, all_pass = {all_pass}")
-        # print(f"[DEBUG] draft_past_key_values length BEFORE trim: {draft_past_key_values[0][0].shape[2]}")
-
-        # have rejection
-        # if not all_pass:
-        #     accepted_draft_len = len(input_ids_list) + number_of_matches
-        #     print(f"[DEBUG] Cropping draft_past_key_values to accepted_draft_len = {accepted_draft_len}")
-        #     draft_past_key_values = crop_past_key_values(
-        #         draft_past_key_values, accepted_draft_len
-        #     )
-
-        #     with torch.no_grad():
-        #         print("!!! [FALLBACK] generating KV for fallback token Z")
-        #         z_input = verified_tokens[:, number_of_matches : number_of_matches + 1]  # shape [1, 1]
-        #         print(f"!!! [FALLBACK] z_input shape = {z_input.shape}, token_id = {z_input.tolist()}")
-        #         z_result = forward_early(
-        #             model=model,
-        #             input_ids=z_input,
-        #             past_key_values=draft_past_key_values,
-        #             exit_layer=exit_layer,
-        #             exit_query_cache=None,
-        #         )
-        #         draft_past_key_values = z_result.past_key_values
-        #         input_ids = z_input
-        #         print(f"[DEBUG] draft_past_key_values length AFTER Z append: {draft_past_key_values[0][0].shape[2]}")
-        #accepted_draft_len = len(output_ids) + number_of_matches
-        #accepted_draft_len = prompt_length + total_draft_matches
-        # draft_kv_len = draft_past_key_values[-1][0].shape[2]
-        # tokens_to_trim = num_speculations - number_of_matches
-        # accepted_draft_len = draft_kv_len - tokens_to_trim
-        
         accepted_draft_len = kv_cache_length_before_draft + number_of_matches
-        # print(f"[DEBUG] Cropping to accepted_draft_len = {accepted_draft_len} (kv_cache_length_before_draft  = {kv_cache_length_before_draft }, match = {number_of_matches})")
         draft_past_key_values = crop_past_key_values(draft_past_key_values, accepted_draft_len)
-
-        # print(f"[DEBUG] Cropping draft_past_key_values to accepted_draft_len = {accepted_draft_len}")
-        # draft_past_key_values = crop_past_key_values(
-        #     draft_past_key_values, accepted_draft_len
-        # )
 
         return (
             input_ids,
