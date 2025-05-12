@@ -26,6 +26,7 @@ from self_speculation.generator_base import (
     HuggingfaceLlamaGenerator,
 )
 from self_speculation.self_speculation_generator import SelfSpeculativeGenerationStrategy
+from self_speculation.self_speculation_generator import SelfSpeculativeGenerationStrategy_SepKVCache
 from generate import load_model_and_tokenizer, setup
 from benchmark import EvaluationMetrics
 
@@ -402,6 +403,9 @@ def main(args: Arguments, eval_arguments: EvalArguments, generation_config: Gene
         generation_strategy: GenerationStrategy = AutoRegressiveGenerationStrategy()
     elif generation_config.generation_strategy == "self_speculative":
         generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy()
+    # add sparsity generation strategy
+    elif generation_config.generation_strategy == "self_speculative_sep_kv":
+        generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy_SepKVCache(generation_config)
     else:
         raise Exception(
             f"Unsupported generation strategy: {generation_config.generation_strategy}"

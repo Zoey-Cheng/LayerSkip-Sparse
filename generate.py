@@ -90,7 +90,8 @@ def main(args: Arguments, generate_arguments: GenerateArguments, generation_conf
         generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy()
     # add sparsity generation strategy
     elif generation_config.generation_strategy == "self_speculative_sep_kv":
-        generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy_SepKVCache()
+        generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy_SepKVCache(generation_config)
+
     else:
         raise Exception(
             f"Unsupported generation strategy: {generation_config.generation_strategy}"
@@ -141,7 +142,7 @@ def main(args: Arguments, generate_arguments: GenerateArguments, generation_conf
         print(f"\tNumber of tokens: {num_tokens}")
         print(f"\tTime per token: {total_time / num_tokens : .3f}s")
         print(f"\tTokens per second: {num_tokens / total_time :.3f}")
-        if generation_config.generation_strategy == "self_speculative":
+        if (generation_config.generation_strategy == "self_speculative" or generation_config.generation_strategy == "self_speculative_sep_kv"):
             print(f"\tAcceptance Rate: {response.generation_strategy_result.acceptance_rate:.2%}")
         print()
 

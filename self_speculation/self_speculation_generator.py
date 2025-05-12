@@ -6,9 +6,13 @@
 #
 
 from typing import List, Optional, Tuple
+from contextlib import nullcontext
+from self_speculation.sparsity_manager import SparsityManager
 
 import colorama
 import torch
+import os, re
+from contextlib import nullcontext
 
 import transformers
 from self_speculation.generator_base import (
@@ -250,6 +254,38 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         )
         
 class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
+    def __init__(self, gen_cfg: GenerationConfig | None = None):  # ★ 新增
+        super().__init__()
+        # !!! modify, add default generation config
+        self.cfg = gen_cfg if gen_cfg is not None else GenerationConfig()
+        self.sparsity_manager = None
+    
+    def _ensure_sparsity(self, model):
+        """initialize / reuse 4:2 mask: return whether to use sparsity"""
+        if not getattr(self.cfg, "enable_sparsity", False):
+            return False 
+        if self.sparsity_manager:  
+            return True
+
+        algo = self.cfg.sparsity_algo or "oneshot_4to2"
+        # save path: <model_dir>_<algo>.pt
+        #mask_path = f"{model.name_or_path}_{algo}.pt"
+        safe_name = model.name_or_path.replace("/", "_")
+        mask_path = f"{safe_name}_{algo}.pt" 
+
+        self.sparsity_manager = SparsityManager(model, algo)
+        if os.path.exists(mask_path):
+            self.sparsity_manager.masks = torch.load(mask_path)
+            print(f"[INFO] Re‑using sparse mask: {mask_path}")
+        else:
+            print(f"[INFO] Building {algo} sparse mask …")
+            self.sparsity_manager.build_masks()
+            torch.save(self.sparsity_manager.masks, mask_path)
+            print(f"[INFO] Saved sparse mask to {mask_path}")
+
+        return True
+
+    
     def generate_token_ids(
         self,
         model: transformers.LlamaForCausalLM,
@@ -264,6 +300,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         # past_key_values = None
         draft_past_key_values = None
         verify_past_key_values = None
+        use_sparse = self._ensure_sparsity(model)
         
         input_ids_list = input_ids
         input_ids: torch.Tensor = torch.tensor([input_ids_list]).to(model.device)
@@ -305,6 +342,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
                 logits_processors=logits_processors,
                 stopping_criteria=stopping_criteria,
                 streamer=streamer,
+                use_sparse=use_sparse,
             )
             calls += 1
             total_draft_matches += number_of_matches
@@ -349,7 +387,8 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         top_p: Optional[float] = 0.95,
         logits_processors: Optional[transformers.generation.logits_process.LogitsProcessorList] = None,
         stopping_criteria: Optional[transformers.StoppingCriteriaList] = None,
-        streamer: Optional[transformers.TextStreamer] = None
+        streamer: Optional[transformers.TextStreamer] = None,
+        use_sparse: bool = False
     ):
         prompt_length: int = input_ids.size(1)
         draft_input_ids = input_ids.clone()
@@ -372,15 +411,17 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
             # else:
             #     print(f"[DEBUG] KV length BEFORE draft: None (first token)")
             
-            draft_result = forward_early(
-                model,
-                draft_input_ids,
-                # !!! modify here
-                # past_key_values,
-                draft_past_key_values,
-                exit_layer,
-                exit_query_cache,
-            )
+            # !!! modify here - sparsity
+            with (self.sparsity_manager.enable() if use_sparse else nullcontext()):
+                draft_result = forward_early(
+                    model,
+                    draft_input_ids,
+                    # !!! modify here
+                    # past_key_values,
+                    draft_past_key_values,
+                    exit_layer,
+                    exit_query_cache,
+                )
             
             new_kv_len = draft_result.past_key_values[0][0].shape[2]
             # print(f"[DEBUG] KV length AFTER  draft: {new_kv_len}")
@@ -512,7 +553,6 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
         #         draft_past_key_values, accepted_draft_len
         #     )
 
-        #     # 添加 full 模型生成的 Z 的 KV 到 draft_past_key_values
         #     with torch.no_grad():
         #         print("!!! [FALLBACK] generating KV for fallback token Z")
         #         z_input = verified_tokens[:, number_of_matches : number_of_matches + 1]  # shape [1, 1]
