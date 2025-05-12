@@ -234,6 +234,12 @@ def forward_early(
         dtype=torch.long,
         device=device,
     )
+    
+    # print("====== !!! [Debug: forward_early] ======")
+    # print(f"position_ids.shape: {position_ids.shape}")
+    # print(f"position_ids: {position_ids}")
+    # print("===========================================")
+    
     position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
     attention_mask = input_ids.new_ones(
         (batch_size, seq_length_with_past),
@@ -247,8 +253,15 @@ def forward_early(
         inputs_embeds,
         past_key_values_length,
     )
+    # print("====== [Debug: attention mask construction] ======")
+    # print(f"batch_size: {batch_size}")
+    # print(f"input_ids.shape: {input_ids.shape}")
+    # print(f"seq_length: {seq_length}")
+    # print(f"attention_mask.shape: {attention_mask.shape}")
+    # print("===========================================")
 
     hidden_states = inputs_embeds
+    # only run first exit_layer layers
     for decoder_layer in model.model.layers[:exit_layer]:
         hidden_states, past_key_values = decoder_layer(
             hidden_states,
@@ -280,11 +293,11 @@ def forward_early(
 def forward_remainder(
     model: transformers.LlamaForCausalLM,
     input_ids: torch.Tensor,
-    past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],
+    past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]],         # verify
     exit_layer: int,
     exit_query_cache: Optional[List[torch.Tensor]],
     reuse_kv_cache: bool = True,
-    helper_key_values:Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+    helper_key_values:Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None, # draft
 ) -> ForwardResult:
     device = input_ids.device
     batch_size, seq_length = input_ids.shape
@@ -293,7 +306,8 @@ def forward_remainder(
     draft_past_key_values_length: int = 0
     full_past_key_values_length: int = 0
     
-    print(f"[DEBUG][forward_early] past_key_values len before = {0 if past_key_values is None else past_key_values[0][0].shape[2]}")
+    # print(f"[DEBUG][forward_early] past_key_values len before = {0 if past_key_values is None else past_key_values[0][0].shape[2]}")
+    # print(f"[DEBUG][forward_early] draft_key_values len before = {0 if helper_key_values is None else helper_key_values[0][0].shape[2]}")
     
     # !!! modify, create branch
     # if past_key_values is not None and past_key_values[0] is not None:
@@ -315,6 +329,7 @@ def forward_remainder(
 
         # the last layer should not have been skipped, we can get this to check how many of the tokens have gone through full
         # verification
+        # after a rejection round
         if len(past_key_values) == len(model.model.layers):
             full_past_key_values_length = past_key_values[-1][0].shape[2]
         else:
@@ -326,41 +341,59 @@ def forward_remainder(
 
     inputs_embeds = model.model.embed_tokens(input_ids)
 
-    print("====== [Debug: forward_remainder] ======")
-    print(f"reuse_kv_cache: {reuse_kv_cache}")
-    print(f"input_ids.shape: {input_ids.shape}")
-    print(f"draft_past_key_values_length: {draft_past_key_values_length}")
-    print(f"full_past_key_values_length: {full_past_key_values_length}")
-    print(f"num_tokens_to_generate: {num_tokens_to_generate}")
-    print(f"seq_length_with_past: {seq_length_with_past}")
-    print(f"seq_length: {seq_length}")
-    print(f"expected position_ids length: {seq_length_with_past - full_past_key_values_length}")
-    print("========================================")
+    # print("====== [Debug: forward_remainder] ======")
+    # print(f"reuse_kv_cache: {reuse_kv_cache}")
+    # print(f"input_ids.shape: {input_ids.shape}")
+    # print(f"draft_past_key_values_length: {draft_past_key_values_length}")
+    # print(f"full_past_key_values_length: {full_past_key_values_length}")
+    # print(f"num_tokens_to_generate: {num_tokens_to_generate}")
+    # print(f"seq_length_with_past: {seq_length_with_past}")
+    # print(f"seq_length: {seq_length}")
+    # print(f"expected position_ids length: {seq_length_with_past - full_past_key_values_length}")
+    # print("========================================")
 
+    # !!! modify, branch
+    early_seq_with_past = draft_past_key_values_length + num_tokens_to_generate
+    full_seq_with_past  = full_past_key_values_length  + seq_length
+    
     position_ids = torch.arange(
         full_past_key_values_length,
-        seq_length_with_past,
+        # !!! modify
+        #seq_length_with_past,
+        full_seq_with_past,
         dtype=torch.long,
         device=device,
     )
     #position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
     position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+    # print("====== !!! [Debug: forward_remainer] ======")
+    # print(f"position_ids.shape: {position_ids.shape}")
+    # print(f"position_ids: {position_ids}")
+    # print("===========================================")
     
-    attention_mask = input_ids.new_ones(
-        (batch_size, seq_length_with_past),
+    attention_mask_full = input_ids.new_ones(
+        # !!! modify
+        #(batch_size, seq_length_with_past),
+        (batch_size, full_seq_with_past),
         dtype=torch.bool,
     )
-    print("====== [Debug: attention mask construction] ======")
-    print(f"batch_size: {batch_size}")
-    print(f"input_ids.shape: {input_ids.shape}")
-    print(f"draft_past_key_values_length: {draft_past_key_values_length}")
-    print(f"full_past_key_values_length: {full_past_key_values_length}")
-    print(f"seq_length: {seq_length}")
-    print(f"attention_mask.shape: {attention_mask.shape}")
-    print("===========================================")
+    # print("====== [Debug: attention mask construction] ======")
+    # print(f"batch_size: {batch_size}")
+    # print(f"input_ids.shape: {input_ids.shape}")
+    # print(f"draft_past_key_values_length: {draft_past_key_values_length}")
+    # print(f"full_past_key_values_length: {full_past_key_values_length}")
+    # print(f"seq_length: {seq_length}")
+    # print(f"attention_mask_full.shape: {attention_mask_full.shape}")
+    # print("===========================================")
+    # !!! modify, branch
+    if reuse_kv_cache:
+        attention_mask_early = attention_mask_full
+    else:
+        attention_mask_early = attention_mask_full[:, :early_seq_with_past]
+        
     early_attention_mask = _prepare_decoder_attention_mask(
         model,
-        attention_mask,
+        attention_mask_early,
         (batch_size, num_tokens_to_generate),
         inputs_embeds,
         draft_past_key_values_length,
@@ -368,18 +401,18 @@ def forward_remainder(
 
     full_attention_mask = _prepare_decoder_attention_mask(
         model,
-        attention_mask,
+        attention_mask_full,
         # !!! modify
         (batch_size, seq_length),
         #(batch_size, seq_length_with_past),
         inputs_embeds,
         full_past_key_values_length,  # we have no past for the full model
     )
-    print("====== [Debug: attention masks] ======")
-    print(f"attention_mask.shape: {attention_mask.shape}")
-    print(f"early_attention_mask.shape: {early_attention_mask.shape}")
-    print(f"full_attention_mask.shape: {full_attention_mask.shape}")
-    print("======================================")
+    # print("====== [Debug: attention masks] ======")
+    # print(f"attention_mask_full.shape: {attention_mask_full.shape}")
+    # print(f"early_attention_mask.shape: {early_attention_mask.shape}")
+    # print(f"full_attention_mask.shape: {full_attention_mask.shape}")
+    # print("======================================")
 
     next_decoder_cache = []
     hidden_states = inputs_embeds
@@ -406,14 +439,17 @@ def forward_remainder(
                 padding_mask=None,
             )
         else:
-            if full_hidden_states is None and exit_query_cache is not None:
-                # first time seeing the full hidden states, we need to rely on the
-                # query cache
-                # only use if exit query cache exists, if not this is our first call
-                full_hidden_states = torch.cat(
-                    [exit_query_cache, hidden_states[:, -num_tokens_to_generate:]],
-                    dim=1,
-                )
+            if full_hidden_states is None:
+                if reuse_kv_cache and exit_query_cache is not None:
+                    # first time seeing the full hidden states, we need to rely on the
+                    # query cache
+                    # only use if exit query cache exists, if not this is our first call
+                    full_hidden_states = torch.cat(
+                        [exit_query_cache, hidden_states[:, -num_tokens_to_generate:]],
+                        dim=1,
+                    )
+                else:
+                    full_hidden_states = hidden_states
             else:
                 # we already have seen the fully hidden states we can re-use them now
                 full_hidden_states = hidden_states
