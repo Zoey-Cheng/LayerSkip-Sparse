@@ -43,6 +43,10 @@ class GenerationConfig:
     no_repeat_ngram_size: int = None
     stop_words: List[str] = None
     stop_token_ids: List[int] = None
+    
+    # !!! MODIFY: Add sparsity related parameters
+    enable_sparsity: Optional[bool] = False 
+    sparsity_algo: Optional[str] = "oneshot_4to2"       # sparsity method
 
     def __post_init__(self):
         if self.stop_token_ids is None:
