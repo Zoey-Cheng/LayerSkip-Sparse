@@ -20,6 +20,7 @@ import os
 
 from arguments import Arguments, simple_parse_args_string
 from self_speculation.autoregressive_generator import AutoRegressiveGenerationStrategy
+from self_speculation.self_speculation_generator import SelfSpeculativeGenerationStrategy_SepKVCache
 from self_speculation.generator_base import (
     GenerationConfig,
     GenerationResult,
@@ -87,6 +88,9 @@ def main(args: Arguments, generate_arguments: GenerateArguments, generation_conf
         generation_strategy: GenerationStrategy = AutoRegressiveGenerationStrategy()
     elif generation_config.generation_strategy == "self_speculative":
         generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy()
+    # add sparsity generation strategy
+    elif generation_config.generation_strategy == "self_speculative_sep_kv":
+        generation_strategy: GenerationStrategy = SelfSpeculativeGenerationStrategy_SepKVCache()
     else:
         raise Exception(
             f"Unsupported generation strategy: {generation_config.generation_strategy}"
