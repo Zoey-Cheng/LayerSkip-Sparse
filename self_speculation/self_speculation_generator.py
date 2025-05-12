@@ -180,7 +180,6 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         past_key_values = verify_results.past_key_values
         # only select the logits relevant to what the draft has outputted.
         # verification_logits: 1 x T_d x V
-        # !!! modify here
         verification_logits = logits[:, prompt_length - 1 :, :]
 
         # verified_tokens: 1 x (T_d)
@@ -204,6 +203,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 else:
                     verified_tokens[0][number_of_matches] = torch.multinomial(max_fn((verified_probabilities[i, :] - draft_probabilities[i])), num_samples=1).item()
                     break
+                
         # accept the `number_of_matches` tokens from the draft with one more from the main model
         # since we re-use the same cachem the input id should only be the last accepted token TODO check this
         # prompt for next round
@@ -216,11 +216,14 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
                 streamer.delete(len(draft_output_ids[0, :]))
+                print(colorama.Fore.GREEN, end="")
                 streamer.put(draft_output_ids[0, : number_of_matches])
+                print(colorama.Style.RESET_ALL, end="")
                 streamer.put(verified_tokens[0][number_of_matches : number_of_matches + 1])
             else:
                 # streamer.put(torch.cat((draft_output_ids[0, : number_of_matches], verified_tokens[0][number_of_matches : number_of_matches + 1])))
                 streamer.put(torch.LongTensor(output_ids[len(output_ids)-number_of_matches-1:]))
+                
         # we want the entire output sequence + input sequence
         past_key_values = crop_past_key_values(
             past_key_values, len(input_ids_list) + len(output_ids) - 1
@@ -483,6 +486,7 @@ class SelfSpeculativeGenerationStrategy_SepKVCache(GenerationStrategy):
 
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
+                print(colorama.Fore.LIGHTMAGENTA_EX, end="")
                 streamer.delete(len(draft_output_ids[0, :]))
                 streamer.put(draft_output_ids[0, : number_of_matches])
                 streamer.put(verified_tokens[0][number_of_matches : number_of_matches + 1])
