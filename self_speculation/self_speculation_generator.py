@@ -128,8 +128,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
         if sample:
             draft_probabilities: List[torch.Tensor] = []
         exit_query_cache = None
-
-        for i in range(num_speculations):        
+        for _ in range(num_speculations):        
             draft_result = forward_early(
                 model,
                 draft_input_ids,
@@ -138,7 +137,6 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 exit_query_cache,
             )
             new_kv_len = draft_result.past_key_values[0][0].shape[2]
-            
             past_key_values = draft_result.past_key_values
             exit_query_cache = draft_result.exit_query_cache
             draft_logits = draft_result.logits
@@ -164,6 +162,7 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
 
         if streamer:
             if isinstance(streamer, SpeculativeTextStreamer):
+                print(colorama.Fore.LIGHTMAGENTA_EX, end="")
                 streamer.put(draft_output_ids, is_draft=True)
 
         # logits: 1 x (T_d  + T_p) x V
@@ -203,7 +202,6 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
                 else:
                     verified_tokens[0][number_of_matches] = torch.multinomial(max_fn((verified_probabilities[i, :] - draft_probabilities[i])), num_samples=1).item()
                     break
-                
         # accept the `number_of_matches` tokens from the draft with one more from the main model
         # since we re-use the same cachem the input id should only be the last accepted token TODO check this
         # prompt for next round
@@ -223,7 +221,6 @@ class SelfSpeculativeGenerationStrategy(GenerationStrategy):
             else:
                 # streamer.put(torch.cat((draft_output_ids[0, : number_of_matches], verified_tokens[0][number_of_matches : number_of_matches + 1])))
                 streamer.put(torch.LongTensor(output_ids[len(output_ids)-number_of_matches-1:]))
-                
         # we want the entire output sequence + input sequence
         past_key_values = crop_past_key_values(
             past_key_values, len(input_ids_list) + len(output_ids) - 1
